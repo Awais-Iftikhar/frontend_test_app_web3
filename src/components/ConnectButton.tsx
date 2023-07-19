@@ -19,6 +19,8 @@ import { useDisclosure, useToast } from "@chakra-ui/react";
 import { injected } from "../config/wallets";
 import abi from "./abi.json";
 import { AbiItem } from "web3-utils";
+import axios from 'axios'
+import { useTransactionReceipt } from "../hooks/useTransactionReciept";
 
 declare global {
   interface Window {
@@ -37,6 +39,7 @@ export default function ConnectButton() {
   const [sendAmount, setSendAmount] = useState<number>(0);
   const [gasFee, setGasFee] = useState<string>("");
   const [gasLimit, setGasLimit] = useState<number>(0);
+  const {getTransactionStatus} = useTransactionReceipt()
   const toast = useToast();
 
   function handleConnectWallet() {
@@ -91,7 +94,27 @@ export default function ConnectButton() {
     await ctx.methods.transfer(recieverAdd, sendAmount).send();
   }, [account, library]);
 
-  const sendAction = useCallback(async () => {
+
+  const saveTransaction = async(wallet_address:string,tx_hash: string,amount:string) => {
+    await axios
+    .post(`http://localhost:8000/api/transaction/add`, {
+      wallet_address,
+      tx_hash,
+      amount
+    })
+    .then((res) => {
+        console.log(res);
+        setSendAmount(0)
+        setRecieverAdd('')
+        alert(res.data.message)
+    }).catch(err => {
+      console.log(err);
+
+    });
+  }
+
+  const sendAction = useCallback(async () => {    
+
     const web3 = new Web3(library.provider);
 
     const txParams: any = {
@@ -101,17 +124,17 @@ export default function ConnectButton() {
       value: Web3.utils.toWei(sendAmount.toString(), "ether"),
     };
     console.log(txParams);
-    await web3.eth.sendTransaction(txParams, (error: any, hash: any) => {
+    await web3.eth.sendTransaction(txParams, async(error: any, hash: any) => {
       if (error) {
         console.error(error);
       } else {
         console.log(`Transaction hash: ${hash}`);
-        web3.eth.getTransaction(hash, (error, transaction) => {
-          if (error) {
-            return;
+        web3.eth.getTransaction(hash,async (error, transaction) => {
+          const data = await getTransactionStatus(hash)
+          if(data){
+            saveTransaction(account!,hash,txParams.value)
+            console.log(`Transaction data: ${transaction?.input}`);
           }
-
-          console.log(`Transaction data: ${transaction?.input}`);
         });
       }
     });
@@ -153,9 +176,9 @@ export default function ConnectButton() {
       const gasPrice = await web3.eth.getGasPrice();
       setGasFee(gasPrice);
 
-      // const value1 = await ctx.methods.balanceOf(account).call({gasPrice: Number(gasPrice) * 100});
-      // console.log('[baby amount]', value1)
-      // setBabyBalance(value1);
+      const value1 = await ctx.methods.balanceOf(account).call(); //{gasPrice: Number(gasPrice) * 100}
+      console.log('[baby amount]', value1)
+      setBabyBalance(Number(fromWei(web3, value1)).toFixed(5));
     }
   }, [account, library]);
 
@@ -308,7 +331,13 @@ export default function ConnectButton() {
                 <Button colorScheme="blue" mr={3} onClick={onClose}>
                   Close
                 </Button>
-                <Button variant="ghost" onClick={sendAction}>
+                <Button variant="ghost" onClick={() =>  {
+                  if(mode === 'BNB'){
+                    sendAction()
+                  } else {
+                    sendBaby()
+                  }
+                }}>
                   Send
                 </Button>
               </ModalFooter>
